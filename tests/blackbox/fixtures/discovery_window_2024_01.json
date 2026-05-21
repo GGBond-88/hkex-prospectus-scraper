@@ -1,0 +1,33 @@
+{
+  "hits": [
+    {
+      "DOC_ID": "2024010100001",
+      "STOCK_CODE": "9999",
+      "STOCK_NAME_EN": "Test Holdings Limited",
+      "STOCK_NAME_C": "测试控股有限公司",
+      "TITLE": "GLOBAL OFFERING",
+      "DATE_TIME": "2024-01-15 08:30:00",
+      "T1_CODE": "40000",
+      "T2_CODE": "40100",
+      "MARKET": "SEHK",
+      "LANGUAGE_CD": "E",
+      "FILE_LINK": "/listedco/listconews/sehk/2024/0115/2024010100001_e.pdf"
+    },
+    {
+      "_comment_gem_doc_type": "GEM filings have MARKET=GEM. doc_type is derived as 'Listing Document - GEM' by the discovery parser (see Task 008). The fixture does not carry an explicit doc_type field because the real HKEX response does not include one — the mapping from MARKET to doc_type is the discovery module's responsibility.",
+      "DOC_ID": "2024010200002",
+      "STOCK_CODE": "9998",
+      "STOCK_NAME_C": "中文专用控股",
+      "TITLE": "招股章程",
+      "DATE_TIME": "2024-01-22 09:00:00",
+      "T1_CODE": "40000",
+      "T2_CODE": "40100",
+      "MARKET": "GEM",
+      "LANGUAGE_CD": "C",
+      "FILE_LINK": "/listedco/listconews/gem/2024/0122/2024010200002_c.pdf"
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "pageSize": 100
+}

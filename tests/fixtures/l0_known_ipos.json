@@ -1,0 +1,98 @@
+{
+  "_comment": "Golden fixtures: each entry is a well-known IPO whose discoverability via the L0 client we want to lock in as a regression test. Source: HKEX disclosure page per ticker. Updated: 2024 Q2.",
+  "fixtures": [
+    {
+      "hk_ticker": "01810",
+      "company_name_en": "Xiaomi Corporation",
+      "listing_date": "2018-07-09",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2018-06-01",
+      "window_end": "2018-07-31"
+    },
+    {
+      "hk_ticker": "09988",
+      "company_name_en": "Alibaba Group Holding Limited",
+      "listing_date": "2019-11-26",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2019-11-01",
+      "window_end": "2019-12-31"
+    },
+    {
+      "hk_ticker": "06618",
+      "company_name_en": "JD Health International Inc.",
+      "listing_date": "2020-12-08",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2020-11-01",
+      "window_end": "2020-12-31"
+    },
+    {
+      "hk_ticker": "00700",
+      "company_name_en": "Tencent Holdings Limited",
+      "listing_date": "2004-06-16",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2010-01-01",
+      "window_end": "2010-01-31",
+      "_comment": "Pre-2010 listing; included to verify the client gracefully returns zero hits for pre-spec-range tickers, not a discovery target."
+    },
+    {
+      "hk_ticker": "02020",
+      "company_name_en": "ANTA Sports Products Limited",
+      "listing_date": "2007-07-10",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2010-01-01",
+      "window_end": "2010-01-31",
+      "_comment": "Pre-2010; same note as above."
+    },
+    {
+      "hk_ticker": "01024",
+      "company_name_en": "Kuaishou Technology",
+      "listing_date": "2021-02-05",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2021-01-01",
+      "window_end": "2021-02-28"
+    },
+    {
+      "hk_ticker": "03690",
+      "company_name_en": "Meituan",
+      "listing_date": "2018-09-20",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2018-09-01",
+      "window_end": "2018-09-30"
+    },
+    {
+      "hk_ticker": "08405",
+      "company_name_en": "Quali-Smart Holdings Limited",
+      "listing_date": "2015-01-08",
+      "market": "GEM",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2014-12-01",
+      "window_end": "2015-01-31"
+    },
+    {
+      "hk_ticker": "09618",
+      "company_name_en": "JD.com, Inc.",
+      "listing_date": "2020-06-18",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2020-06-01",
+      "window_end": "2020-06-30"
+    },
+    {
+      "hk_ticker": "02382",
+      "company_name_en": "Sunny Optical Technology (Group) Company Limited",
+      "listing_date": "2007-06-15",
+      "market": "MB",
+      "expected_url_suffix": "_e.pdf",
+      "window_start": "2010-01-01",
+      "window_end": "2010-01-31",
+      "_comment": "Pre-2010; sanity entry."
+    }
+  ]
+}

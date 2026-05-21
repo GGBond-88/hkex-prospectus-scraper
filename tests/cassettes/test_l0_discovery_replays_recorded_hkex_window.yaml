@@ -1,0 +1,37 @@
+interactions:
+- request:
+    method: GET
+    uri: https://www1.hkexnews.hk/search/titlesearchservlet.do?t1code=40000&t2code=40100&from=20240101&to=20240131&page=1&pageSize=100
+    headers:
+      User-Agent:
+      - hk-ipo-research/0.1 (research)
+    body: null
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      content-type:
+      - application/json
+    body:
+      string: |
+        {
+          "hits": [
+            {
+              "DOC_ID": "2024010100001",
+              "STOCK_CODE": "9999",
+              "STOCK_NAME_EN": "Sample Holdings Limited",
+              "TITLE": "GLOBAL OFFERING",
+              "DATE_TIME": "2024-01-15 08:30:00",
+              "T1_CODE": "40000",
+              "T2_CODE": "40100",
+              "MARKET": "SEHK",
+              "LANGUAGE_CD": "E",
+              "FILE_LINK": "/listedco/listconews/sehk/2024/0115/2024010100001_e.pdf"
+            }
+          ],
+          "total": 1,
+          "page": 1,
+          "pageSize": 100
+        }
+version: 1

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# L0 data (regenerable)
+data/raw_pdfs/*.pdf
+data/raw_pdfs/*.pdf.tmp
+data/raw_pdfs/manifest.json
+data/logs/l0/*
+!data/logs/l0/.gitkeep
+
+# IDE
+.vscode/
+.idea/
