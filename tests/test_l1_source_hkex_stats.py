@@ -4,25 +4,16 @@ Tests cover:
   1. _parse_hkex_page extracts tickers, names, and dates from a well-formed table
   2. _parse_hkex_page handles missing ticker, name, and date fields gracefully
   3. _parse_hkex_page returns empty list on HTML with no IPO data
-  4. fetch_hkex_stats returns [] and logs error (skeleton behavior when no
-     individual IPO data is available from the HKEX page)
-  5. fetch_hkex_stats writes cache file when page is fetched
-  6. fetch_hkex_stats uses cache when available and not force_refreshed
-  7. fetch_hkex_stats honors force_refresh
-  8. fetch_hkex_stats does not crash on HTTP errors
+  4. fetch_hkex_stats returns [] — skeleton mode (early return in _fetch_year)
+  5. fetch_hkex_stats handles start_year > end_year
+  6. fetch_hkex_stats does not crash on HTTP errors
 """
-from __future__ import annotations
-
-import json
-import time
 from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
-from hk_ipo.l1.models import ExternalIPO
 
 
 # ---------------------------------------------------------------------------
@@ -118,10 +109,9 @@ def test_parse_hkex_page_allows_missing_company_name(sample_html: str) -> None:
 
     # 00005 is in the partial-data-table with empty company name but has a date
     ticker_00005 = [r for r in results if r.hk_ticker == "00005"]
-    # The parser may or may not include this depending on implementation
-    # (empty name is valid but not useful)
-    if ticker_00005:
-        assert ticker_00005[0].list_date == date(2024, 2, 1)
+    assert len(ticker_00005) == 1
+    assert ticker_00005[0].company_name == ""
+    assert ticker_00005[0].list_date == date(2024, 2, 1)
 
 
 def test_parse_hkex_page_allows_missing_list_date(sample_html: str) -> None:
@@ -134,9 +124,9 @@ def test_parse_hkex_page_allows_missing_list_date(sample_html: str) -> None:
 
     # 00011 is in the partial-data-table with empty date but has a name
     ticker_00011 = [r for r in results if r.hk_ticker == "00011"]
-    if ticker_00011:
-        assert ticker_00011[0].list_date is None
-        assert ticker_00011[0].company_name == "Valid Co"
+    assert len(ticker_00011) == 1
+    assert ticker_00011[0].list_date is None
+    assert ticker_00011[0].company_name == "Valid Co"
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +166,26 @@ def test_parse_hkex_page_does_not_parse_non_ipo_tables(sample_html: str) -> None
 # ---------------------------------------------------------------------------
 # fetch_hkex_stats: skeleton behavior
 # ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_fetch_hkex_stats_start_year_gt_end_year_returns_empty(
+    tmp_path: Path,
+) -> None:
+    """When start_year > end_year, fetch_hkex_stats should log a warning and
+    return [] without making any HTTP requests."""
+    from hk_ipo.l1._http import ValidationHTTPClient
+    from hk_ipo.l1.source_hkex_stats import fetch_hkex_stats
+
+    mock_client = MagicMock(spec=ValidationHTTPClient)
+    mock_client.get = AsyncMock()
+
+    results = await fetch_hkex_stats(
+        mock_client,
+        start_year=2025,
+        end_year=2020,
+    )
+    assert results == []
+    mock_client.get.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_fetch_hkex_stats_returns_empty_list(tmp_path: Path) -> None:
@@ -218,16 +228,16 @@ async def test_fetch_hkex_stats_does_not_crash_on_http_error(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_fetch_hkex_stats_writes_cache_file(tmp_path: Path) -> None:
-    """When a page is fetched successfully, the raw HTML should be cached."""
+async def test_fetch_hkex_stats_skeleton_does_not_write_cache(
+    tmp_path: Path,
+) -> None:
+    """In skeleton mode, _fetch_year returns [] early — no HTTP requests and
+    therefore no cache files are written."""
     from hk_ipo.l1._http import ValidationHTTPClient
-    from hk_ipo.l1.source_hkex_stats import fetch_hkex_stats, _cache_dir
+    from hk_ipo.l1.source_hkex_stats import fetch_hkex_stats
 
     mock_client = MagicMock(spec=ValidationHTTPClient)
-    mock_client.get = AsyncMock(return_value=httpx.Response(
-        200,
-        text="<html><body>HKEX page content</body></html>",
-    ))
+    mock_client.get = AsyncMock()
 
     with patch("hk_ipo.l1.source_hkex_stats._cache_dir") as mock_cache_dir:
         mock_cache_dir.return_value = tmp_path / "data" / "validation"
@@ -238,14 +248,18 @@ async def test_fetch_hkex_stats_writes_cache_file(tmp_path: Path) -> None:
         )
 
     assert results == []
-    # The cache file should have been written
+    # No HTTP requests were made, so no cache files should exist.
     cache_files = list(tmp_path.rglob("*.html"))
-    assert len(cache_files) > 0
+    assert len(cache_files) == 0
+    mock_client.get.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_fetch_hkex_stats_reads_from_cache(tmp_path: Path) -> None:
-    """When cache exists and is fresh, fetch_hkex_stats should use it."""
+async def test_fetch_hkex_stats_skeleton_returns_empty_without_http(
+    tmp_path: Path,
+) -> None:
+    """In skeleton mode, _fetch_year returns [] early regardless of whether
+    a cache file exists — no HTTP requests are made."""
     from hk_ipo.l1._http import ValidationHTTPClient
     from hk_ipo.l1.source_hkex_stats import fetch_hkex_stats
 
@@ -278,8 +292,11 @@ async def test_fetch_hkex_stats_reads_from_cache(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fetch_hkex_stats_force_refresh_bypasses_cache(tmp_path: Path) -> None:
-    """force_refresh=True should bypass cache and fetch fresh data."""
+async def test_fetch_hkex_stats_force_refresh_returns_empty(
+    tmp_path: Path,
+) -> None:
+    """In skeleton mode, force_refresh is irrelevant — _fetch_year returns []
+    immediately without making HTTP requests."""
     from hk_ipo.l1._http import ValidationHTTPClient
     from hk_ipo.l1.source_hkex_stats import fetch_hkex_stats
 
@@ -289,10 +306,7 @@ async def test_fetch_hkex_stats_force_refresh_bypasses_cache(tmp_path: Path) -> 
     cache_file.write_text("<html>Cached content</html>", encoding="utf-8")
 
     mock_client = MagicMock(spec=ValidationHTTPClient)
-    mock_client.get = AsyncMock(return_value=httpx.Response(
-        200,
-        text="<html>Fresh content</html>",
-    ))
+    mock_client.get = AsyncMock()
 
     with patch("hk_ipo.l1.source_hkex_stats._cache_dir") as mock_cache_dir:
         mock_cache_dir.return_value = tmp_path / "data" / "validation"
@@ -304,8 +318,8 @@ async def test_fetch_hkex_stats_force_refresh_bypasses_cache(tmp_path: Path) -> 
             force_refresh=True,
         )
 
-    # Should have called client.get (bypassed cache)
-    mock_client.get.assert_called_once()
+    # Skeleton returns [] without calling client.get.
+    mock_client.get.assert_not_called()
     assert results == []
 
 

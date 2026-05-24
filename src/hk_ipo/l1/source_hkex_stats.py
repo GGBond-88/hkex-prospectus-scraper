@@ -31,8 +31,6 @@ This source returns an empty list by design per the graceful-degradation
 requirement in the spec (two-source agreement still functions with
 sources B and C — aastocks and wikipedia).
 """
-from __future__ import annotations
-
 import json
 import logging
 from datetime import date, datetime
@@ -54,12 +52,10 @@ HKEX_MONTHLY_HIGHLIGHTS_URL = (
     "https://www.hkex.com.hk/Market-Data/Statistics/Consolidated-Reports/"
     "HKEX-Monthly-Market-Highlights?sc_lang=en"
 )
-HKEX_ALL_SECURITIES_URL = (
-    "https://www.hkex.com.hk/eng/services/trading/securities/"
-    "securitieslists/ListOfSecurities.xlsx"
-)
-
 # Explanation for why this source returns no data.
+# Guard to ensure the skeleton reason is logged at most once per process.
+_SKELETON_LOGGED = False
+
 _SKELETON_REASON = (
     "HKEX Monthly Market Highlights page is JS-heavy and contains only "
     "aggregate statistics (counts, totals). Individual IPO data (stock "
@@ -148,7 +144,11 @@ async def fetch_hkex_stats(
         )
         return []
 
-    # Collect results per-year
+    # Collect results per-year.
+    # NOTE: HKEX_MONTHLY_HIGHLIGHTS_URL is NOT year-parameterized — every
+    # iteration would fetch the same URL.  _fetch_year returns [] immediately
+    # in skeleton mode.  When HKEX provides a per-year endpoint, parameterize
+    # the URL here (e.g. with a ?year=<year> query parameter).
     all_results: list[ExternalIPO] = []
 
     for year in range(start_year, end_year + 1):
@@ -163,8 +163,10 @@ async def fetch_hkex_stats(
                 f"Exception while fetching HKEX stats for year {year}"
             )
 
-    # Log the skeleton reason on first call (once per session).
-    if not all_results:
+    # Log the skeleton reason once per session.
+    global _SKELETON_LOGGED
+    if not all_results and not _SKELETON_LOGGED:
+        _SKELETON_LOGGED = True
         logger.info(
             "hkex_stats source returned 0 results. %s",
             _SKELETON_REASON,
@@ -188,7 +190,17 @@ async def _fetch_year(
 
     Caches the raw HTML under:
         data/validation/raw/hkex_stats/<year>.html
+
+    SKELETON: The HKEX Monthly Market Highlights page does not contain
+    individual IPO data (only aggregate statistics).  The URL is NOT
+    year-parameterized, so every call would fetch the same page.  We
+    return [] immediately without making HTTP requests.  When HKEX
+    provides a per-year endpoint or machine-readable feed, restore the
+    HTTP + parsing logic below.
     """
+    # SKELETON early return — no IPO data is available from this page.
+    return []
+
     cache_dir = _cache_dir() / "raw" / SOURCE_NAME
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f"{year}.html"
@@ -338,8 +350,13 @@ def _is_header_text(text: str) -> bool:
 
 
 def _cell_text(cell) -> str:
-    """Extract clean text from a selectolax node."""
-    text = cell.text(strip=True, deep=True)
+    """Extract clean text from a selectolax node.
+
+    Uses cell.text(deep=True) with Python str.strip() rather than the
+    selectolax 0.4.x-only strip=True parameter, maintaining compatibility
+    with the project's minimum selectolax>=0.3.21.
+    """
+    text = cell.text(deep=True).strip()
     return text or ""
 
 
