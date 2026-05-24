@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "entries": {
+    "01810": {
+      "hk_ticker": "01810",
+      "status": "success",
+      "doc_id": "2018062500002",
+      "doc_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2018/0625/2018062500002_e.pdf",
+      "doc_title": "Global Offering",
+      "company_name_en": "Xiaomi Corporation",
+      "company_name_zh": "小米集团",
+      "listing_date": "2018-07-09",
+      "market": "MB",
+      "language": "en",
+      "file_path": "01810.pdf",
+      "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "file_size_bytes": 12345678,
+      "discovered_at": "2024-01-15T00:00:00Z",
+      "downloaded_at": "2024-01-15T00:00:01Z"
+    },
+    "00123": {
+      "hk_ticker": "00123",
+      "status": "success",
+      "doc_id": "2024030100005",
+      "doc_url": "https://www1.hkexnews.hk/listedco/listconews/gem/2024/0301/2024030100005_e.pdf",
+      "doc_title": "Listing Document",
+      "company_name_en": "GEM Test Co Ltd",
+      "market": "GEM",
+      "language": "en",
+      "file_path": "00123.pdf",
+      "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "file_size_bytes": 5000000,
+      "discovered_at": "2024-03-05T08:00:00Z",
+      "downloaded_at": "2024-03-05T08:00:05Z"
+    },
+    "00001": {
+      "hk_ticker": "00001",
+      "status": "skipped_wrong_doc_type",
+      "doc_id": "2024010200002",
+      "doc_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2024/0102/2024010200002_c.pdf",
+      "doc_title": "Annual Report",
+      "discovered_at": "2024-01-22T00:00:00Z",
+      "skip_reason": "not_final_prospectus"
+    },
+    "06666": {
+      "hk_ticker": "06666",
+      "status": "skipped_no_english",
+      "doc_id": "2024031500010",
+      "doc_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2024/0315/2024031500010_c.pdf",
+      "doc_title": "招股章程",
+      "company_name_zh": "测试控股有限公司",
+      "discovered_at": "2024-03-20T00:00:00Z",
+      "skip_reason": "no_english_version_published"
+    },
+    "09999": {
+      "hk_ticker": "09999",
+      "status": "failed",
+      "doc_url": "https://www1.hkexnews.hk/listedco/listconews/gem/2024/0615/2024061500008_e.pdf",
+      "error": "HTTPError: 503 after 5 retries",
+      "first_attempted_at": "2024-06-15T00:00:00Z",
+      "last_attempted_at": "2024-06-15T00:05:00Z",
+      "attempt_count": 5,
+      "discovered_at": "2024-06-15T00:00:00Z"
+    },
+    "08888": {
+      "hk_ticker": "08888",
+      "status": "skipped_wrong_doc_type",
+      "doc_id": "2024070100003",
+      "doc_url": null,
+      "skip_reason": "not_final_prospectus",
+      "discovered_at": "2024-07-01T00:00:00Z"
+    }
+  }
+}
