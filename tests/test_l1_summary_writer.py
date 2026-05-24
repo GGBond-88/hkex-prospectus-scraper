@@ -45,7 +45,7 @@ def _read(path: Path) -> str:
 class TestEmptyEntries:
     def test_empty_entries(self, tmp_path: Path) -> None:
         out = tmp_path / "summary.md"
-        write_summary([], out)
+        write_summary([], out, manifest_path="data/raw_pdfs/manifest.json")
         text = _read(out)
 
         assert "# HKEX IPO Prospectus Download Summary" in text
@@ -61,7 +61,7 @@ class TestSingleSuccess:
     def test_single_success_entry(self, tmp_path: Path) -> None:
         entries = [_make_entry()]
         out = tmp_path / "summary.md"
-        write_summary(entries, out)
+        write_summary(entries, out, manifest_path="data/raw_pdfs/manifest.json")
         text = _read(out)
 
         assert "Successfully downloaded | 1" in text
@@ -79,7 +79,7 @@ class TestYearOrdering:
             _make_entry(ticker="02020", year=2020, month=3),
         ]
         out = tmp_path / "summary.md"
-        write_summary(entries, out)
+        write_summary(entries, out, manifest_path="data/raw_pdfs/manifest.json")
         text = _read(out)
 
         # 2024 must appear before 2020
@@ -95,7 +95,7 @@ class TestEmptyMonths:
             _make_entry(ticker="01200", year=2024, month=12),
         ]
         out = tmp_path / "summary.md"
-        write_summary(entries, out)
+        write_summary(entries, out, manifest_path="data/raw_pdfs/manifest.json")
         text = _read(out)
 
         assert "2024-01" in text
@@ -111,7 +111,7 @@ class TestZeroSuccessCallout:
             _make_entry(ticker="00100", status="skipped_wrong_doc_type", year=2024, month=1),
         ]
         out = tmp_path / "summary.md"
-        write_summary(entries, out)
+        write_summary(entries, out, manifest_path="data/raw_pdfs/manifest.json")
         text = _read(out)
 
         assert "No successful downloads this year" in text
@@ -121,7 +121,7 @@ class TestCompanyNameNA:
     def test_company_name_na_when_none(self, tmp_path: Path) -> None:
         entries = [_make_entry(company_name=None)]
         out = tmp_path / "summary.md"
-        write_summary(entries, out)
+        write_summary(entries, out, manifest_path="data/raw_pdfs/manifest.json")
         text = _read(out)
 
         # Table row should show N/A
@@ -135,7 +135,7 @@ class TestFullSnapshot:
         fixture = Path(__file__).resolve().parent / "fixtures" / "sample_manifest.json"
         entries = read_manifest(fixture)
         out = tmp_path / "summary.md"
-        write_summary(entries, out)
+        write_summary(entries, out, manifest_path=str(fixture))
         text = _read(out)
 
         # ---- Header / totals ------------------------------------------------
@@ -182,4 +182,4 @@ class TestFullSnapshot:
         assert re.search(r"Generated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", text)
 
         # ---- Manifest reference --------------------------------------------
-        assert "data/raw_pdfs/manifest.json" in text
+        assert str(fixture) in text

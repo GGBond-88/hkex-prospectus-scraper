@@ -10,7 +10,9 @@ from hk_ipo.l1.models import NormalizedEntry
 _SKIP_STATUSES = frozenset({"skipped_wrong_doc_type", "skipped_no_english"})
 
 
-def write_summary(entries: list[NormalizedEntry], output_path: Path) -> None:
+def write_summary(
+    entries: list[NormalizedEntry], output_path: Path, manifest_path: str
+) -> None:
     """Write a Markdown summary of manifest entries to *output_path*.
 
     The file is always fully overwritten.
@@ -45,7 +47,7 @@ def write_summary(entries: list[NormalizedEntry], output_path: Path) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines.append(f"Generated: {ts}")
     lines.append(f"Period covered: {period}")
-    lines.append("Manifest: data/raw_pdfs/manifest.json")
+    lines.append(f"Manifest: {manifest_path}")
     lines.append("")
 
     # Totals table
@@ -94,12 +96,18 @@ def write_summary(entries: list[NormalizedEntry], output_path: Path) -> None:
             skipped = [e for e in month_entries if e.status in _SKIP_STATUSES]
             failed = [e for e in month_entries if e.status == "failed"]
 
-            # Successes
-            if successes:
+            # Single H3 heading per month.
+            # Use "— Skipped (N)" suffix only when the month has no
+            # successes or failures — otherwise use a plain heading.
+            if successes or failed:
                 lines.append(f"### {year}-{month:02d}")
-                tickers_str = ", ".join(e.hk_ticker for e in successes)
-                lines.append(f"Downloaded ({len(successes)}): {tickers_str}")
-                lines.append("")
+            elif skipped:
+                lines.append(f"### {year}-{month:02d} — Skipped ({len(skipped)})")
+            else:
+                continue  # empty month (should not happen)
+
+            # Successes — table only, no extra "Downloaded (N): ..." line.
+            if successes:
                 lines.append("| Ticker | Company |")
                 lines.append("|---|---|")
                 for e in successes:
@@ -107,16 +115,14 @@ def write_summary(entries: list[NormalizedEntry], output_path: Path) -> None:
                     lines.append(f"| {e.hk_ticker} | {name} |")
                 lines.append("")
 
-            # Skipped (group all skip statuses)
+            # Skipped (all skip statuses grouped — comma-separated ticker list)
             if skipped:
-                lines.append(f"### {year}-{month:02d} — Skipped ({len(skipped)})")
                 tickers_str = ", ".join(e.hk_ticker for e in skipped)
                 lines.append(f"Skipped tickers: {tickers_str}")
                 lines.append("")
 
-            # Failed
+            # Failed — error table using doc_url as context
             if failed:
-                lines.append(f"### {year}-{month:02d} — Failed ({len(failed)})")
                 lines.append("| Ticker | Error |")
                 lines.append("|---|---|")
                 for e in failed:
