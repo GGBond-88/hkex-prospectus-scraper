@@ -23,6 +23,11 @@ def _flatten_vcr_path(path: str) -> str:
     return str(pathlib.Path(path).parent / CASSETTE_NAME)
 
 
+@pytest.mark.skip(
+    reason="MVP-1: cassette was recorded against the retired titlesearchservlet.do "
+    "endpoint. Needs re-recording against the new POST titlesearch.xhtml flow "
+    "(see working/spec-revise.md MVP-1; deferred to v0.2)."
+)
 @pytest.mark.vcr
 @pytest.mark.asyncio
 async def test_discovery_replays_recorded_hkex_window(tmp_path: Path) -> None:

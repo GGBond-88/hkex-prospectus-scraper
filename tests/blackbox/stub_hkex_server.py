@@ -49,6 +49,21 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def do_POST(self) -> None:  # noqa: N802
+        """MVP-1: the new HKEX flow POSTs the search form to titlesearch.xhtml."""
+        parsed = urlparse(self.path)
+        # Drain request body so the client doesn't hang on a half-closed connection.
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length:
+            self.rfile.read(length)
+        self.state.request_log.append((self.command, self.path))
+
+        if parsed.path.endswith("/titlesearch.xhtml"):
+            self._serve_html()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def _serve_json(self) -> None:
         if self.state.json_status != 200:
             self.send_response(self.state.json_status)

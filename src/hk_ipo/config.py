@@ -22,8 +22,9 @@ class Config:
     raw_pdfs_dir: Path
     manifest_path: Path
     log_dir: Path
-    json_api_base: str
-    html_search_base: str
+    json_api_base: str            # legacy / deprecated (kept for backward-compat tests)
+    html_search_base: str         # primary search endpoint (POST titlesearch.xhtml)
+    partial_lookup_base: str      # ticker -> stockId JSONP autocomplete (partial.do)
     pdf_base: str
     contact_email: str
     default_workers: int
@@ -53,6 +54,10 @@ class Config:
             html_search_base=env.get(
                 "HKEX_HTML_SEARCH_BASE",
                 "https://www1.hkexnews.hk/search/titlesearch.xhtml",
+            ),
+            partial_lookup_base=env.get(
+                "HKEX_PARTIAL_LOOKUP_BASE",
+                "https://www1.hkexnews.hk/search/partial.do",
             ),
             pdf_base=env.get(
                 "HKEX_PDF_BASE",

@@ -6,9 +6,9 @@ import hashlib
 import logging
 import os
 import random
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -20,6 +20,7 @@ from tenacity import (
 )
 
 from hk_ipo.l0.models import DownloadOutcome, DownloadResult, Filing
+from hk_ipo.l1._http import _parse_retry_after_disc
 
 logger = logging.getLogger("hk_ipo")
 
@@ -126,7 +127,16 @@ class PDFDownloader:
                     with attempt:
                         attempts += 1
                         sha, size = await self._stream_to_tmp(filing.doc_url, tmp)
-                os.replace(tmp, target)
+                try:
+                    _safe_replace(tmp, target, max_retries=10, base_delay=0.2)
+                except (PermissionError, OSError) as e:
+                    _safe_unlink(tmp)
+                    return DownloadResult(
+                        hk_ticker=filing.hk_ticker,
+                        outcome=DownloadOutcome.FAILED,
+                        attempts=attempts,
+                        error=f"File rename failed after 5 retries: {e}",
+                    )
                 return DownloadResult(
                     hk_ticker=filing.hk_ticker,
                     outcome=DownloadOutcome.SUCCESS,
@@ -175,7 +185,7 @@ class PDFDownloader:
                         raise _TerminalHTTPError(
                             f"HTTP 429 for {url} after 3 attempts"
                         )
-                    delay = _parse_retry_after(resp)
+                    delay = _parse_retry_after_disc(resp)
                     if delay is None:
                         delay = [30.0, 60.0, 120.0][rate_limit_attempt - 1]
                     await asyncio.sleep(delay)
@@ -202,27 +212,51 @@ def _safe_unlink(p: Path) -> None:
         pass
 
 
-def _parse_retry_after(response: httpx.Response) -> float | None:
-    """Parse Retry-After header from a 429 response.
+def _safe_replace(src: Path, dst: Path, max_retries: int = 5, base_delay: float = 0.1) -> None:
+    """Atomically replace dst with src, retrying on Windows file lock errors.
 
-    Returns seconds to wait (float), or None if absent/unparseable.
-    Handles both integer-seconds and HTTP-date per RFC 7231.
+    Windows antivirus and other processes may lock a file briefly after write,
+    causing PermissionError on os.replace(). This function retries with
+    exponential backoff. If os.replace exhausts retries, falls back to
+    shutil.copy2 + os.unlink which can work even when antivirus holds a
+    read-lock on the source.
     """
-    retry_after = (response.headers.get("Retry-After", "") or "").strip()
-    if not retry_after:
-        return None
-    # Try integer seconds.
+    import shutil
+
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            os.replace(src, dst)
+            return
+        except (PermissionError, OSError) as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                if delay > 5.0:
+                    delay = 5.0  # cap at 5s per attempt
+                logger.debug(
+                    "os.replace(%s, %s) failed (attempt %d/%d): %s, retrying in %.2fs",
+                    src, dst, attempt + 1, max_retries, e, delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.warning(
+                    "os.replace(%s, %s) failed after %d attempts, trying copy+unlink",
+                    src, dst, max_retries,
+                )
+    # Fallback: copy + unlink. Antivirus read-locks prevent os.replace but
+    # allow reading (copy) and deletion after the scan completes.
     try:
-        return float(int(retry_after))
-    except (ValueError, TypeError):
-        pass
-    # Try HTTP-date (e.g. "Wed, 21 Oct 2015 07:28:00 GMT").
-    try:
-        from email.utils import parsedate_to_datetime
-        target = parsedate_to_datetime(retry_after)
-        if target.tzinfo is None:
-            target = target.replace(tzinfo=timezone.utc)
-        delta = (target - datetime.now(timezone.utc)).total_seconds()
-        return max(0.0, delta)
+        shutil.copy2(src, dst)
     except Exception:
-        return None
+        if last_error:
+            raise last_error
+        raise
+    # Best-effort cleanup of the tmp source; a stale .tmp is harmless and
+    # will be swept by sweep_orphan_tmp_files on the next run.
+    try:
+        os.unlink(src)
+    except Exception:
+        pass
+
+

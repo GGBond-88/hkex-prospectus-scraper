@@ -27,6 +27,10 @@ def test_cli_help_lists_all_subcommands(run_cli) -> None:
 # ---------- backfill / sync happy path ----------
 
 def _arm_one_english_one_chinese(stub: StubState, sample_pdf: Path) -> None:
+    # MVP-1: HKEX discovery now POSTs to titlesearch.xhtml and consumes HTML.
+    # The JSON path is no longer hit by the production code; we leave the
+    # JSON fixture armed too for any test that still depends on it.
+    stub.html_response_path = FIXTURES / "discovery_window_2024_01.html"
     stub.json_response_path = FIXTURES / "discovery_window_2024_01.json"
     stub.pdf_response_path = sample_pdf
 
@@ -109,6 +113,7 @@ def test_backfill_limit_5_downloads_exactly_five_and_verifies_manifest(
     """AC 2: backfill --since 2024-01-01 --limit 5 downloads exactly 5 PDFs,
     writes 5 entries to manifest, all status=success, all have non-zero sha256."""
     state, _ = stub_hkex
+    state.html_response_path = FIXTURES / "discovery_window_2024_01_multi.html"
     state.json_response_path = FIXTURES / "discovery_window_2024_01_multi.json"
     state.pdf_response_path = sample_pdf
 
@@ -132,8 +137,14 @@ def test_backfill_limit_5_downloads_exactly_five_and_verifies_manifest(
             f"{ticker}: expected positive file_size_bytes"
 
 
-# ---------- HTML fallback ----------
+# ---------- HTML fallback (legacy / deprecated) ----------
 
+@pytest.mark.skip(
+    reason="MVP-1: JSON-then-HTML-fallback behavior was retired. The new "
+    "discovery flow POSTs directly to titlesearch.xhtml, so this branch no "
+    "longer exists. The discovery_html_fallback.html fixture is also keyed "
+    "to the old <tr class='row'> table structure; not worth porting for v0.1."
+)
 def test_html_fallback_used_when_json_returns_500(
     run_cli, stub_hkex, sample_pdf, manifest_path, pdfs_dir,
 ) -> None:
@@ -180,6 +191,7 @@ def test_sync_uses_last_incremental_sync(
     assert "last_incremental_sync" in after_first or "last_full_sync" in after_first
 
     # Arm empty for the next call; sync should still succeed with zero new.
+    state.html_response_path = FIXTURES / "discovery_empty.html"
     state.json_response_path = FIXTURES / "discovery_empty.json"
     second = run_cli("sync")
     assert second.returncode == 0, second.stderr
@@ -189,6 +201,7 @@ def test_retry_failed_revisits_failed_entries(
     run_cli, stub_hkex, sample_pdf, manifest_path,
 ) -> None:
     state, _ = stub_hkex
+    state.html_response_path = FIXTURES / "discovery_window_2024_01.html"
     state.json_response_path = FIXTURES / "discovery_window_2024_01.json"
     state.pdf_response_path = sample_pdf
     state.pdf_fail_first_n = 99  # exhaust download retries -> failed

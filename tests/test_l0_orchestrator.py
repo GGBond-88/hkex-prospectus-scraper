@@ -24,31 +24,52 @@ from hk_ipo.l0.orchestrator import (
 PDF_BYTES = b"%PDF-1.4\nhello\n%%EOF\n"
 PDF_SHA = hashlib.sha256(PDF_BYTES).hexdigest()
 
-SAMPLE_JSON = {
-    "hits": [
-        {
-            "DOC_ID": "2024010100001",
-            "STOCK_CODE": "9999",
-            "STOCK_NAME_EN": "Test Holdings",
-            "TITLE": "Global Offering",
-            "DATE_TIME": "2024-01-15 08:30:00",
-            "T1_CODE": "40000", "T2_CODE": "40100",
-            "MARKET": "SEHK", "LANGUAGE_CD": "E",
-            "FILE_LINK": "https://pdf.test/9999_e.pdf",
-        },
-        {
-            "DOC_ID": "2024010200002",
-            "STOCK_CODE": "9998",
-            "STOCK_NAME_C": "中文",
-            "TITLE": "招股章程",
-            "DATE_TIME": "2024-01-22 09:00:00",
-            "T1_CODE": "40000", "T2_CODE": "40100",
-            "MARKET": "GEM", "LANGUAGE_CD": "C",
-            "FILE_LINK": "https://pdf.test/9998_c.pdf",
-        },
-    ],
-    "total": 2, "page": 1, "pageSize": 100,
-}
+
+def _html_row(
+    ticker: str,
+    name: str,
+    title: str,
+    href: str,
+    *,
+    headline: str = "Listing Documents - [Offer for Subscription]",
+    release_time: str = "15/01/2024 08:30",
+    size_kb: int = 4500,
+) -> str:
+    """Build one HTML <tr> matching the live HKEX titlesearch.xhtml response shape."""
+    return f"""
+<tr>
+  <td class="text-right text-end release-time"><span class="mobile-list-heading">Release Time: </span>{release_time}</td>
+  <td class="text-right text-end stock-short-code"><span class="mobile-list-heading">Stock Code: </span>{ticker}</td>
+  <td class="stock-short-name"><span class="mobile-list-heading">Stock Short Name: </span>{name}</td>
+  <td>
+    <div class="headline">{headline}<br/></div>
+    <div class="doc-link">
+      <a href="{href}" rel="noopener noreferrer" target="_blank">{title}</a>
+      (<span class="attachment_filesize">{size_kb}KB</span>)<span class="pdf"></span>
+    </div>
+  </td>
+</tr>"""
+
+
+def _html_response(rows: list[str]) -> str:
+    rows_html = "\n".join(rows)
+    return f"""<!DOCTYPE html><html><body>
+<div class="total-records">Total records found: {len(rows)}</div>
+<table><tbody>
+{rows_html}
+</tbody></table>
+</body></html>"""
+
+
+# Two filings: English (9999) kept, Chinese-only (9998) skipped_no_english.
+# Both have headline = "Listing Documents - " so the row passes the headline
+# filter; language is inferred from title text by the new parser.
+SAMPLE_HTML = _html_response([
+    _html_row("09999", "Test Holdings", "Global Offering",
+              "https://pdf.test/9999_e.pdf", release_time="15/01/2024 08:30"),
+    _html_row("09998", "测试控股", "招股章程",
+              "https://pdf.test/9998_c.pdf", release_time="22/01/2024 09:00"),
+])
 
 
 def _cfg(tmp_path: Path) -> Config:
@@ -65,8 +86,8 @@ def _cfg(tmp_path: Path) -> Config:
 @respx.mock
 @pytest.mark.asyncio
 async def test_run_backfill_downloads_english_skips_chinese(tmp_path: Path) -> None:
-    respx.get("https://api.test/titlesearchservlet.do").mock(
-        return_value=httpx.Response(200, json=SAMPLE_JSON),
+    respx.post("https://api.test/titlesearch.xhtml").mock(
+        return_value=httpx.Response(200, text=SAMPLE_HTML),
     )
     respx.get("https://pdf.test/9999_e.pdf").mock(
         return_value=httpx.Response(200, content=PDF_BYTES),
@@ -97,8 +118,8 @@ async def test_run_backfill_downloads_english_skips_chinese(tmp_path: Path) -> N
 @respx.mock
 @pytest.mark.asyncio
 async def test_run_backfill_dry_run_writes_nothing(tmp_path: Path) -> None:
-    respx.get("https://api.test/titlesearchservlet.do").mock(
-        return_value=httpx.Response(200, json=SAMPLE_JSON),
+    respx.post("https://api.test/titlesearch.xhtml").mock(
+        return_value=httpx.Response(200, text=SAMPLE_HTML),
     )
     cfg = _cfg(tmp_path)
     summary = await run_backfill(
@@ -114,8 +135,8 @@ async def test_run_backfill_dry_run_writes_nothing(tmp_path: Path) -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_run_backfill_idempotent_second_run(tmp_path: Path) -> None:
-    respx.get("https://api.test/titlesearchservlet.do").mock(
-        return_value=httpx.Response(200, json=SAMPLE_JSON),
+    respx.post("https://api.test/titlesearch.xhtml").mock(
+        return_value=httpx.Response(200, text=SAMPLE_HTML),
     )
     pdf_route = respx.get("https://pdf.test/9999_e.pdf").mock(
         return_value=httpx.Response(200, content=PDF_BYTES),
@@ -132,11 +153,177 @@ async def test_run_backfill_idempotent_second_run(tmp_path: Path) -> None:
     assert summary2.skipped_already_have >= 1
 
 
+# MVP-2 regression: same ticker has both an A1 (wrong_doc_type) and a final
+# (kept) filing in the same window. Second backfill must NOT overwrite the
+# prior SUCCESS row with SKIPPED_WRONG_DOC_TYPE.
+TWO_FILINGS_SAME_TICKER_HTML = _html_response([
+    # A1 row: headline starts with "Application Proofs ..." -> is_final=False
+    # -> filter classifies as WRONG_DOC_TYPE.
+    _html_row(
+        "09999", "Test Holdings",
+        "APPLICATION PROOF of Test Holdings Limited",
+        "https://pdf.test/9999_a1_e.pdf",
+        headline="Application Proofs and Post Hearing Information Packs or PHIPs - [PHIP]",
+        release_time="10/01/2024 08:00",
+    ),
+    # Final row: headline starts with "Listing Documents - " -> is_final=True
+    # -> filter keeps -> downloaded -> SUCCESS.
+    _html_row(
+        "09999", "Test Holdings", "Global Offering",
+        "https://pdf.test/9999_e.pdf",
+        release_time="15/01/2024 08:30",
+    ),
+])
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_backfill_second_run_does_not_clobber_success_with_skip(
+    tmp_path: Path,
+) -> None:
+    """MVP-2 / H1 regression.
+
+    First backfill: A1 yielded -> marked WRONG_DOC_TYPE, then final yielded
+    -> downloaded -> overwrites with SUCCESS. End state: SUCCESS.
+
+    Second backfill: A1 yielded again. Without the guard, mark_skipped_*
+    would overwrite the SUCCESS with SKIPPED_WRONG_DOC_TYPE. With the guard,
+    A1 is recognized as 'already have a SUCCESS for this ticker' and skipped.
+    """
+    respx.post("https://api.test/titlesearch.xhtml").mock(
+        return_value=httpx.Response(200, text=TWO_FILINGS_SAME_TICKER_HTML),
+    )
+    pdf_route = respx.get("https://pdf.test/9999_e.pdf").mock(
+        return_value=httpx.Response(200, content=PDF_BYTES),
+    )
+
+    cfg = _cfg(tmp_path)
+
+    # First run: ends with SUCCESS for 09999.
+    s1 = await run_backfill(
+        cfg, since=date(2024, 1, 1), until=date(2024, 1, 31),
+        workers=2, dry_run=False, limit=None,
+    )
+    assert s1.downloaded == 1
+    manifest_after_first = json.loads(cfg.manifest_path.read_text(encoding="utf-8"))
+    assert manifest_after_first["entries"]["09999"]["status"] == "success", (
+        "first run should land on success"
+    )
+
+    # Second run: must remain SUCCESS, no re-download.
+    first_call_count = pdf_route.call_count
+    s2 = await run_backfill(
+        cfg, since=date(2024, 1, 1), until=date(2024, 1, 31),
+        workers=2, dry_run=False, limit=None,
+    )
+    assert pdf_route.call_count == first_call_count, "second run must not re-download"
+    assert s2.downloaded == 0
+
+    manifest_after_second = json.loads(cfg.manifest_path.read_text(encoding="utf-8"))
+    assert manifest_after_second["entries"]["09999"]["status"] == "success", (
+        "second run must NOT overwrite SUCCESS with SKIPPED_WRONG_DOC_TYPE"
+    )
+    # Both filings (A1 + final) should now be counted as already-have on rerun.
+    assert s2.skipped_already_have == 2
+    # And we must not have written a fake wrong_doc_type entry anywhere.
+    assert s2.skipped_wrong_doc_type == 0
+
+
+# MVP-3 regression: per-download manifest persistence. With multiple
+# successful downloads, manifest.save() must be called incrementally (once
+# per success), not just once at the end. This means a mid-batch crash
+# preserves the rows that already finished.
+THREE_DOWNLOADS_HTML = _html_response([
+    _html_row(
+        f"0888{i}", f"Test Co {i}", "Global Offering",
+        f"https://pdf.test/888{i}_e.pdf",
+        release_time="15/01/2024 08:30",
+    )
+    for i in (1, 2, 3)
+])
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_manifest_is_saved_incrementally_per_download(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """MVP-3 / H3 regression.
+
+    Spec §5 requires manifest persistence 'after every successful download'.
+    The old implementation used asyncio.gather and only wrote AFTER all
+    downloads completed — a Ctrl+C mid-batch lost every successful row.
+
+    This test patches ManifestStore.save() to record a snapshot of the
+    _entries dict at the moment of each call. With 3 successful downloads,
+    we expect save() to be invoked at least 3 times during the download
+    loop (one per success), and the SUCCESS rows must be present in the
+    snapshot at the moment of save — not all materialised in a single
+    final save.
+    """
+    respx.post("https://api.test/titlesearch.xhtml").mock(
+        return_value=httpx.Response(200, text=THREE_DOWNLOADS_HTML),
+    )
+    for i in (1, 2, 3):
+        respx.get(f"https://pdf.test/888{i}_e.pdf").mock(
+            return_value=httpx.Response(200, content=PDF_BYTES),
+        )
+
+    from hk_ipo.l0.manifest import ManifestStore
+    snapshots: list[dict[str, str]] = []
+    original_save = ManifestStore.save
+
+    def _spying_save(self: ManifestStore) -> None:
+        snapshot = {
+            ticker: entry.status.value
+            for ticker, entry in self._entries.items()
+        }
+        snapshots.append(snapshot)
+        original_save(self)
+
+    monkeypatch.setattr(ManifestStore, "save", _spying_save)
+
+    cfg = _cfg(tmp_path)
+    summary = await run_backfill(
+        cfg, since=date(2024, 1, 1), until=date(2024, 1, 31),
+        workers=2, dry_run=False, limit=None,
+    )
+
+    assert summary.downloaded == 3, f"expected 3 downloads, got {summary.downloaded}"
+
+    # Count snapshots that contain >= 1 SUCCESS row. This proves that
+    # success rows were persisted *during* the download loop, not all at
+    # the end. If there was only ONE save call (the gather-then-save bug),
+    # we would see exactly one snapshot containing all 3 successes.
+    snapshots_with_success = [
+        s for s in snapshots if any(v == "success" for v in s.values())
+    ]
+    assert len(snapshots_with_success) >= 3, (
+        f"expected at least 3 save() calls with success rows present "
+        f"(one per download), got {len(snapshots_with_success)}. "
+        f"All snapshots: {snapshots}"
+    )
+
+    # And the count of SUCCESS rows in the snapshot sequence must grow
+    # monotonically as downloads complete — not jump 0 -> 3 in one step.
+    success_counts = [
+        sum(1 for v in s.values() if v == "success")
+        for s in snapshots_with_success
+    ]
+    # The first save with any success should have exactly 1 success (the
+    # first download to complete). The last should have 3.
+    assert success_counts[0] == 1, (
+        f"first save with a success row should have exactly 1 success "
+        f"(proving incremental persistence). Got {success_counts}"
+    )
+    assert max(success_counts) == 3
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_run_refresh_overwrites_when_pdf_changes(tmp_path: Path) -> None:
-    respx.get("https://api.test/titlesearchservlet.do").mock(
-        return_value=httpx.Response(200, json=SAMPLE_JSON),
+    respx.post("https://api.test/titlesearch.xhtml").mock(
+        return_value=httpx.Response(200, text=SAMPLE_HTML),
     )
     pdf_route = respx.get("https://pdf.test/9999_e.pdf")
     pdf_route.mock(return_value=httpx.Response(200, content=PDF_BYTES))
@@ -158,8 +345,8 @@ async def test_run_refresh_overwrites_when_pdf_changes(tmp_path: Path) -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_run_retry_failed_revisits_failed_entry(tmp_path: Path) -> None:
-    respx.get("https://api.test/titlesearchservlet.do").mock(
-        return_value=httpx.Response(200, json=SAMPLE_JSON),
+    respx.post("https://api.test/titlesearch.xhtml").mock(
+        return_value=httpx.Response(200, text=SAMPLE_HTML),
     )
     pdf_route = respx.get("https://pdf.test/9999_e.pdf")
 

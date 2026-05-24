@@ -60,50 +60,73 @@ async def _download_filings(
     workers: int,
     force_overwrite: bool = False,
 ) -> None:
+    """MVP-3: crash-safe per-download manifest persistence.
+
+    Previously used `asyncio.gather` and only wrote to manifest AFTER all
+    downloads completed. A mid-batch Ctrl+C lost every successful row that had
+    not yet entered the post-gather write loop.
+
+    Now uses `asyncio.as_completed` so each finished download is persisted
+    immediately (spec §5 "after every successful download"). On
+    KeyboardInterrupt / CancelledError, in-flight tasks are cancelled cleanly
+    and already-completed downloads remain in the manifest.
+    """
+    import asyncio
     filings = list(filings)
     if not filings:
         return
     sweep_orphan_tmp_files(cfg.raw_pdfs_dir)
     ua = build_user_agent(cfg.contact_email)
+    by_ticker = {f.hk_ticker: f for f in filings}
+    non_success_since_last_save = 0
     async with PDFDownloader(
         raw_pdfs_dir=cfg.raw_pdfs_dir,
         user_agent=ua,
         max_workers=workers,
     ) as dl:
-        results = await dl.download_many(filings)
-    by_ticker = {f.hk_ticker: f for f in filings}
-    non_success_since_last_save = 0
-    for r in results:
-        f = by_ticker[r.hk_ticker]
-        if r.outcome == DownloadOutcome.SUCCESS:
-            store.add_success(
-                hk_ticker=r.hk_ticker,
-                doc_id=f.doc_id, doc_url=f.doc_url, doc_title=f.doc_title,
-                file_path=r.file_path or f"{r.hk_ticker}.pdf",
-                file_sha256=r.file_sha256 or "",
-                file_size_bytes=r.file_size_bytes or 0,
-                discovered_at=datetime.now(tz=timezone.utc),
-                market=f.market, language=f.language,
-                company_name_en=f.company_name_en,
-                company_name_zh=f.company_name_zh,
-            )
-            summary.downloaded += 1
-            summary.bytes_downloaded += r.file_size_bytes or 0
-            store.save()  # persist after every success (spec section 5)
-            non_success_since_last_save = 0
-        else:
-            store.mark_failed(
-                hk_ticker=r.hk_ticker,
-                doc_url=f.doc_url,
-                error=r.error or "unknown",
-                discovered_at=datetime.now(tz=timezone.utc),
-            )
-            summary.failed += 1
-            summary.failed_tickers.append(r.hk_ticker)
-            non_success_since_last_save += 1
-            if non_success_since_last_save >= 10:
-                store.save()  # persist every 10 failures (spec section 5)
-                non_success_since_last_save = 0
+        tasks = [asyncio.create_task(dl._download_one(f)) for f in filings]
+        try:
+            for completed in asyncio.as_completed(tasks):
+                r = await completed
+                f = by_ticker[r.hk_ticker]
+                if r.outcome == DownloadOutcome.SUCCESS:
+                    store.add_success(
+                        hk_ticker=r.hk_ticker,
+                        doc_id=f.doc_id, doc_url=f.doc_url, doc_title=f.doc_title,
+                        file_path=r.file_path or f"{r.hk_ticker}.pdf",
+                        file_sha256=r.file_sha256 or "",
+                        file_size_bytes=r.file_size_bytes or 0,
+                        discovered_at=datetime.now(tz=timezone.utc),
+                        market=f.market, language=f.language,
+                        company_name_en=f.company_name_en,
+                        company_name_zh=f.company_name_zh,
+                    )
+                    summary.downloaded += 1
+                    summary.bytes_downloaded += r.file_size_bytes or 0
+                    store.save()  # persist immediately (spec section 5)
+                    non_success_since_last_save = 0
+                else:
+                    store.mark_failed(
+                        hk_ticker=r.hk_ticker,
+                        doc_url=f.doc_url,
+                        error=r.error or "unknown",
+                        discovered_at=datetime.now(tz=timezone.utc),
+                    )
+                    summary.failed += 1
+                    summary.failed_tickers.append(r.hk_ticker)
+                    non_success_since_last_save += 1
+                    if non_success_since_last_save >= 10:
+                        store.save()  # persist every 10 failures (spec section 5)
+                        non_success_since_last_save = 0
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            # Cancel any still-pending downloads cleanly.
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            # Flush whatever we have so far.
+            if non_success_since_last_save > 0:
+                store.save()
+            raise
     if non_success_since_last_save > 0:
         store.save()  # flush remaining non-success entries
 
@@ -124,6 +147,7 @@ async def run_backfill(
     async with HKEXDiscoveryClient(
         json_api_base=cfg.json_api_base,
         html_search_base=cfg.html_search_base,
+        partial_lookup_base=cfg.partial_lookup_base,
         pdf_base_url=cfg.pdf_base,
         log_dir=cfg.log_dir,
         user_agent=build_user_agent(cfg.contact_email),
@@ -133,6 +157,15 @@ async def run_backfill(
             summary.discovered += 1
             decision = FilterDecision.from_filing(filing)
             if not decision.keep:
+                # MVP-2 idempotency guard: a re-discovered A1 / PHIP / Chinese-only
+                # filing for a ticker we already successfully downloaded must NEVER
+                # clobber the SUCCESS row with a SKIPPED status. spec-revise.md
+                # MVP-2; bug H1 in code review.
+                if store is not None and (
+                    store.get_status(filing.hk_ticker) == ManifestStatus.SUCCESS
+                ):
+                    summary.skipped_already_have += 1
+                    continue
                 if decision.skip_reason == SkipReason.NO_ENGLISH:
                     summary.skipped_no_english += 1
                     if store is not None:
@@ -157,13 +190,15 @@ async def run_backfill(
                         store.save()  # persist every 10 skips (spec section 5)
                         discovery_skips_since_last_save = 0
                 continue
-            # Check if we already have it.
+            # Check if we already have it. MVP-2: only SUCCESS and FAILED count
+            # as "already attempted". A prior SKIPPED_* status is noise from an
+            # A1/PHIP/Chinese-only filing and must yield to a same-run or later
+            # keep filing for the same ticker (spec §4: "future date-window
+            # backfill happens to re-discover it via the discovery API").
             if store is not None:
                 existing = store.get_status(filing.hk_ticker)
                 if existing in (
                     ManifestStatus.SUCCESS,
-                    ManifestStatus.SKIPPED_NO_ENGLISH,
-                    ManifestStatus.SKIPPED_WRONG_DOC_TYPE,
                     ManifestStatus.FAILED,
                 ):
                     summary.skipped_already_have += 1

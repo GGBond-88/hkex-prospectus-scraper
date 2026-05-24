@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
+import time
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import portalocker
+
+logger = logging.getLogger("hk_ipo")
 
 from hk_ipo.l0.models import Filing, ManifestEntry, ManifestStatus, pad_ticker
 
@@ -77,7 +81,7 @@ class ManifestStore:
                 os.fsync(fh.fileno())
             # Lock the target during replace to serialize writers.
             with portalocker.Lock(str(self.path) + ".lock", timeout=10):
-                os.replace(tmp_name, self.path)
+                _safe_replace(tmp_name, str(self.path), max_retries=10, base_delay=0.2)
         except Exception:
             try:
                 os.unlink(tmp_name)
@@ -223,3 +227,45 @@ def _parse_iso(s: str | None) -> datetime | None:
     if s is None:
         return None
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _safe_replace(src: str | Path, dst: str | Path, max_retries: int = 5, base_delay: float = 0.1) -> None:
+    """Atomically replace dst with src, retrying on Windows file lock errors.
+
+    Windows antivirus and other processes may lock a file briefly after write,
+    causing PermissionError on os.replace(). Falls back to copy+unlink on
+    exhaustion.
+    """
+    import shutil
+
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            os.replace(src, dst)
+            return
+        except (PermissionError, OSError) as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                if delay > 5.0:
+                    delay = 5.0
+                logger.debug(
+                    "os.replace(%s, %s) failed (attempt %d/%d): %s, retrying in %.2fs",
+                    src, dst, attempt + 1, max_retries, e, delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.warning(
+                    "os.replace(%s, %s) failed after %d attempts, trying copy+unlink",
+                    src, dst, max_retries,
+                )
+    try:
+        shutil.copy2(src, dst)
+    except Exception:
+        if last_error:
+            raise last_error
+        raise
+    try:
+        os.unlink(src)
+    except Exception:
+        pass
