@@ -90,16 +90,33 @@ def test_parse_aastocks_page_all_entries_have_source(sample_html: str) -> None:
         assert r.source_url == source_url
 
 
-def test_parse_aastocks_page_tickers_are_padded(sample_html: str) -> None:
-    """All tickers should be zero-padded to 5 characters."""
+def test_parse_aastocks_page_tickers_are_padded() -> None:
+    """Tickers shorter than 5 chars should be zero-padded by ExternalIPO.__post_init__."""
     from hk_ipo.l1.source_aastocks import _parse_aastocks_page
 
-    source_url = "http://www.aastocks.com/en/stocks/market/ipo/listedipo.aspx?s=1&o=0&page=1"
-    results = _parse_aastocks_page(sample_html, source_url)
+    # Use inline HTML with a short ticker "1.HK" to verify padding
+    html = """<html><body>
+<div id="IPOListed">
+<table class="ns2 dataTable">
+<thead><tr><td></td><td>Name/Code</td><td>Listing Date</td></tr></thead>
+<tbody>
+<tr>
+<td></td>
+<td class="txt_l"><a href="/summary">Short Ticker Co</a><br/><a class="cls" href="/quote">1.HK</a></td>
+<td class="txt_r">2025/03/15</td>
+</tr>
+</tbody>
+</table>
+</div>
+</body></html>"""
+    source_url = "http://example.com"
+    results = _parse_aastocks_page(html, source_url)
 
-    for r in results:
-        assert len(r.hk_ticker) == 5, f"{r.hk_ticker} should be 5-char padded"
-        assert r.hk_ticker == r.hk_ticker.zfill(5)
+    assert len(results) == 1
+    assert results[0].hk_ticker == "00001", (
+        f"Expected padded ticker '00001', got '{results[0].hk_ticker}'"
+    )
+    assert len(results[0].hk_ticker) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +378,8 @@ async def test_fetch_aastocks_handles_http_error(tmp_path: Path) -> None:
 async def test_fetch_aastocks_handles_non_200_status(
     tmp_path: Path,
 ) -> None:
-    """Non-200 HTTP responses should be cached and results returned as [] for that page."""
+    """Non-200 HTTP responses raise an exception, causing the orchestrator to skip the
+    page and continue to the next. The error is logged to source_errors.json."""
     from hk_ipo.l1._http import ValidationHTTPClient
     from hk_ipo.l1.source_aastocks import fetch_aastocks
 
@@ -377,9 +395,18 @@ async def test_fetch_aastocks_handles_non_200_status(
         results = await fetch_aastocks(
             mock_client,
             force_refresh=True,
+            max_pages=2,
         )
 
+    # Both pages returned non-200, so all were skipped → no results.
     assert results == []
+    assert mock_client.get.call_count == 2
+    # Verify error was logged for both pages.
+    import json
+    error_log = tmp_path / "data" / "validation" / "source_errors.json"
+    assert error_log.exists()
+    entries = json.loads(error_log.read_text(encoding="utf-8"))
+    assert len(entries) == 2
 
 
 @pytest.mark.asyncio
@@ -407,3 +434,69 @@ async def test_fetch_aastocks_pagination_continues_after_http_error(
 
     # Page 1 failed, page 2 returned 3 results, page 3 empty -> stop
     assert len(results) == 3
+
+
+# ---------------------------------------------------------------------------
+# _log_source_error
+# ---------------------------------------------------------------------------
+
+def test_log_source_error_creates_file_and_appends(tmp_path: Path) -> None:
+    """_log_source_error creates the JSON file and appends entries."""
+    import json
+    from hk_ipo.l1.source_aastocks import _log_source_error
+
+    error_log = tmp_path / "data" / "validation" / "source_errors.json"
+
+    with patch("hk_ipo.l1.source_aastocks._error_log_path") as mock_path:
+        mock_path.return_value = error_log
+
+        _log_source_error("Test error 1")
+        _log_source_error("Test error 2")
+
+    assert error_log.exists()
+    entries = json.loads(error_log.read_text(encoding="utf-8"))
+    assert len(entries) == 2
+    assert entries[0]["source"] == "aastocks"
+    assert entries[0]["reason"] == "Test error 1"
+    assert entries[1]["reason"] == "Test error 2"
+    assert "timestamp" in entries[0]
+
+
+def test_log_source_error_enforces_50_entry_cap(tmp_path: Path) -> None:
+    """_log_source_error keeps only the last 50 entries."""
+    import json
+    from hk_ipo.l1.source_aastocks import _log_source_error
+
+    error_log = tmp_path / "data" / "validation" / "source_errors.json"
+
+    with patch("hk_ipo.l1.source_aastocks._error_log_path") as mock_path:
+        mock_path.return_value = error_log
+
+        # Write 55 entries
+        for i in range(55):
+            _log_source_error(f"Error {i}")
+
+    entries = json.loads(error_log.read_text(encoding="utf-8"))
+    assert len(entries) == 50
+    # Should keep the last 50 (entries 5-54)
+    assert entries[0]["reason"] == "Error 5"
+    assert entries[-1]["reason"] == "Error 54"
+
+
+def test_log_source_error_handles_corrupt_json(tmp_path: Path) -> None:
+    """_log_source_error recovers gracefully from a corrupt JSON file."""
+    import json
+    from hk_ipo.l1.source_aastocks import _log_source_error
+
+    error_log = tmp_path / "data" / "validation" / "source_errors.json"
+    error_log.parent.mkdir(parents=True, exist_ok=True)
+    error_log.write_text("this is not valid json", encoding="utf-8")
+
+    with patch("hk_ipo.l1.source_aastocks._error_log_path") as mock_path:
+        mock_path.return_value = error_log
+
+        _log_source_error("Recovery error")
+
+    entries = json.loads(error_log.read_text(encoding="utf-8"))
+    assert len(entries) == 1
+    assert entries[0]["reason"] == "Recovery error"

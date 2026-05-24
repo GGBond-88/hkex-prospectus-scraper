@@ -13,7 +13,7 @@ renders a <table class="ns2 dataTable"> inside <div id="IPOListed"> with:
 Pagination follows the pattern:
   listedipo.aspx?s=1&o=0&page=N
 
-We walk pages until no rows are found or max_pages is reached (default 50).
+We walk pages until no rows are found or max_pages is reached (default 30).
 Each page is cached at data/validation/raw/aastocks/page_<N>.html.
 """
 
@@ -39,7 +39,7 @@ SOURCE_NAME = "aastocks"
 AASTOCKS_BASE_URL = (
     "http://www.aastocks.com/en/stocks/market/ipo/listedipo.aspx"
 )
-DEFAULT_MAX_PAGES = 50
+DEFAULT_MAX_PAGES = 30
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +60,11 @@ def _log_source_error(reason: str) -> None:
     """Append a timestamped error entry to source_errors.json.
 
     Creates the file and parent directories if they do not exist.
+
+    Note: this function performs a read-modify-write of the JSON file and is
+    not concurrency-safe. In the current architecture, sources are fetched
+    sequentially so concurrent writes are unlikely. Errors are rare and the
+    file is capped at 50 entries, so the risk of data loss is negligible.
     """
     log_path = _error_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,7 +111,7 @@ async def fetch_aastocks(
     Args:
         client: Configured ValidationHTTPClient.
         force_refresh: If True, bypass cache and re-fetch.
-        max_pages: Safety limit for pagination walk (default 50).
+        max_pages: Safety limit for pagination walk (default 30).
 
     Returns:
         list[ExternalIPO] with source="aastocks".
@@ -171,12 +176,13 @@ async def _fetch_page(
 
     if resp.status_code != 200:
         logger.warning(
-            "AAStocks page %d returned HTTP %d; caching raw response.",
+            "AAStocks page %d returned HTTP %d; skipping page.",
             page_num,
             resp.status_code,
         )
-        cache_path.write_text(resp.text, encoding="utf-8")
-        return []
+        raise RuntimeError(
+            f"AAStocks page {page_num} returned HTTP {resp.status_code}"
+        )
 
     # Cache the successful response
     cache_path.write_text(resp.text, encoding="utf-8")
@@ -334,11 +340,14 @@ def _parse_date(raw: str) -> date | None:
     except ValueError:
         pass
 
-    # DD/MM/YYYY
-    try:
-        return datetime.strptime(raw, "%d/%m/%Y").date()
-    except ValueError:
-        pass
+    # DD/MM/YYYY (only when unambiguous: first segment > 12 means it
+    # cannot be a month, so it must be a day value in DD/MM/YYYY format)
+    parts = raw.split("/")
+    if len(parts) == 3 and parts[0].isdigit() and int(parts[0]) > 12:
+        try:
+            return datetime.strptime(raw, "%d/%m/%Y").date()
+        except ValueError:
+            pass
 
     # Year-only fallback
     try:
