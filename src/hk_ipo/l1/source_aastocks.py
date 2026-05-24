@@ -17,6 +17,10 @@ We walk pages until no rows are found or max_pages is reached (default 30).
 Each page is cached at data/validation/raw/aastocks/page_<N>.html.
 """
 
+# TODO: _cache_dir / _error_log_path / _log_source_error are copy-pasted
+# across source_*.py modules. Extract to shared _source_utils.py when
+# a fourth source is added.
+
 from __future__ import annotations
 
 import json
@@ -313,6 +317,12 @@ def _parse_aastocks_page(html: str, source_url: str) -> list[ExternalIPO]:
 
 def _parse_date(raw: str) -> date | None:
     """Parse an AAStocks date string into a date object, or None on failure.
+
+    Note: this parser is independently maintained for the AAStocks
+    HTML source, which primarily uses YYYY/MM/DD format. It includes
+    an unambiguous DD/MM/YYYY heuristic (first segment >12) that is
+    specific to this data. Each source module's _parse_date handles
+    the format-specific quirks of its target data.
 
     AAStocks uses YYYY/MM/DD format (e.g. "2025/09/30").
     Also handles:

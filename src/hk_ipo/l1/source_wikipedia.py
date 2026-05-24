@@ -15,6 +15,10 @@ Target pages by year (multiple candidates tried per year):
 Each page is cached at data/validation/raw/wikipedia/<year>.json.
 """
 
+# TODO: _cache_dir / _error_log_path / _log_source_error are copy-pasted
+# across source_*.py modules. Extract to shared _source_utils.py when
+# a fourth source is added.
+
 from __future__ import annotations
 
 import json
@@ -430,10 +434,23 @@ def _extract_ticker(text: str) -> str | None:
     # Check if the result is pure digits
     if clean.isdigit() and len(clean) <= 5:
         return clean.zfill(5)
-    # As a fallback, extract any digit sequence from the text
-    digits = re.sub(r"\D", "", clean)
-    if digits and len(digits) <= 5:
-        return digits.zfill(5)
+    # As a fallback, extract any digit sequence from the text.
+    # Guard: skip cells whose cleaned content matches date-like patterns
+    # (month names, separators) to avoid false tickers such as "62025"
+    # extracted from "6 May 2025".
+    _month_names = (
+        r"\b(?:january|february|march|april|may|june|july|august|"
+        r"september|october|november|december|"
+        r"jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b"
+    )
+    if (
+        not re.search(_month_names, clean, re.IGNORECASE)
+        and "/" not in clean
+        and "-" not in clean
+    ):
+        digits = re.sub(r"\D", "", clean)
+        if digits and 1 <= len(digits) <= 5:
+            return digits.zfill(5)
     return None
 
 
@@ -492,6 +509,12 @@ def _clean_wikitext(text: str) -> str:
 
 def _parse_date(raw: str) -> date | None:
     """Parse a date string into a date object, or None on failure.
+
+    Note: this parser is independently maintained for the Wikipedia
+    wikitext source, which uses human-readable dates (DD Month YYYY,
+    ordinal suffixes, etc.) not found in other source modules. Each
+    source module's _parse_date handles the format-specific quirks of
+    its target data.
 
     Supports:
       - YYYY-MM-DD  (ISO 8601)

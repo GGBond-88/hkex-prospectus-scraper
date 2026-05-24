@@ -31,6 +31,9 @@ This source returns an empty list by design per the graceful-degradation
 requirement in the spec (two-source agreement still functions with
 sources B and C — aastocks and wikipedia).
 """
+# TODO: _cache_dir / _error_log_path / _log_source_error are copy-pasted
+# across source_*.py modules. Extract to shared _source_utils.py when
+# a fourth source is added.
 import json
 import logging
 from datetime import date, datetime
@@ -362,6 +365,12 @@ def _cell_text(cell) -> str:
 
 def _parse_date(raw: str) -> date | None:
     """Parse a date string into a date object, or None on failure.
+
+    Note: this parser is independently maintained for the HKEX stats
+    source, which uses numeric-only date formats. It does NOT support
+    DD Month YYYY or ordinal suffixes — those are handled in the
+    Wikipedia source module. Each source module's _parse_date handles
+    the format-specific quirks of its target data.
 
     Supports:
       - YYYY-MM-DD  (ISO 8601)
