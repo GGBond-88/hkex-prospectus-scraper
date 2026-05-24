@@ -49,3 +49,4 @@ class GapReport:
     extra_in_manifest: set[str]  # we downloaded, no source confirms
     single_source_candidates: set[str]  # 1 source only — human triage
     per_year_counts: dict[int, dict[str, int]]  # year -> {source -> count}
+    degraded: bool = False  # True when <2 sources have data (two-source rule disabled)
