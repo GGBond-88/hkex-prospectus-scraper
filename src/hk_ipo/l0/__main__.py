@@ -17,6 +17,8 @@ from hk_ipo.l0.orchestrator import (
     run_sync,
     run_verify,
 )
+from hk_ipo.l1.cli import add_l1_subparsers
+from hk_ipo.l1.pipeline import run_report, run_report_all, run_validate
 
 
 def _parse_date(s: str) -> date:
@@ -58,6 +60,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     pv = sub.add_parser("verify", help="Re-hash on-disk PDFs against the manifest.")
     pv.add_argument("--repair", action="store_true")
+
+    add_l1_subparsers(sub)
     return p
 
 
@@ -73,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             log_dir=cfg.log_dir,
             json_api_base=cfg.json_api_base,
             html_search_base=cfg.html_search_base,
+            partial_lookup_base=cfg.partial_lookup_base,
             pdf_base=cfg.pdf_base,
             contact_email=cfg.contact_email,
             default_workers=cfg.default_workers,
@@ -119,6 +124,46 @@ def main(argv: list[str] | None = None) -> int:
             code, drifted = run_verify(cfg, repair=args.repair)
             if drifted:
                 print(f"drift detected on: {', '.join(drifted)}", file=sys.stderr)
+            return code
+        if args.cmd == "report":
+            manifest = getattr(args, "manifest", None) or cfg.manifest_path
+            code = asyncio.run(run_report(
+                manifest,
+                getattr(args, "output", Path("./summary.md")),
+                since=getattr(args, "since", None),
+                until=getattr(args, "until", None),
+            ))
+            return code
+        if args.cmd == "validate":
+            manifest = getattr(args, "manifest", None) or cfg.manifest_path
+            sources_list = [
+                s.strip() for s in getattr(args, "sources", "hkex_stats,aastocks,wikipedia").split(",")
+            ]
+            code = asyncio.run(run_validate(
+                manifest,
+                getattr(args, "output", Path("./gaps.md")),
+                getattr(args, "missing_tickers_out", Path("data/validation/reconciled/missing_tickers.txt")),
+                sources=sources_list,
+                refresh_sources=getattr(args, "refresh_sources", False),
+                contact_email=cfg.contact_email,
+            ))
+            return code
+        if args.cmd == "report-all":
+            manifest = getattr(args, "manifest", None) or cfg.manifest_path
+            sources_list = [
+                s.strip() for s in getattr(args, "sources", "hkex_stats,aastocks,wikipedia").split(",")
+            ]
+            code = asyncio.run(run_report_all(
+                manifest,
+                getattr(args, "summary", Path("./summary.md")),
+                getattr(args, "gaps", Path("./gaps.md")),
+                getattr(args, "missing_tickers_out", Path("data/validation/reconciled/missing_tickers.txt")),
+                sources=sources_list,
+                refresh_sources=getattr(args, "refresh_sources", False),
+                contact_email=cfg.contact_email,
+                since=getattr(args, "since", None),
+                until=getattr(args, "until", None),
+            ))
             return code
     except Exception as e:  # pragma: no cover - defensive top-level
         print(f"ERROR: {type(e).__name__}: {e}", file=sys.stderr)
