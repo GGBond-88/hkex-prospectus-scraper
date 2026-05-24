@@ -18,6 +18,7 @@ class NormalizedEntry:
     company_name_en: str | None
     doc_url: str | None
     file_path: str | None  # populated only when status == "success"
+    error_msg: str | None = None  # populated for failed entries
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "hk_ticker", pad_ticker(self.hk_ticker))

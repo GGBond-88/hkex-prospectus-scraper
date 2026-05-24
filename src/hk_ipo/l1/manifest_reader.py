@@ -50,6 +50,7 @@ def read_manifest(manifest_path: Path) -> list[NormalizedEntry]:
                 company_name_en=entry.company_name_en,
                 doc_url=entry.doc_url,
                 file_path=entry.file_path,
+                error_msg=entry.error,
             )
         )
 
@@ -72,6 +73,7 @@ def write_normalized(entries: list[NormalizedEntry], path: Path) -> None:
             "company_name_en": e.company_name_en,
             "doc_url": e.doc_url,
             "file_path": e.file_path,
+            "error_msg": e.error_msg,
         }
         for e in entries
     ]

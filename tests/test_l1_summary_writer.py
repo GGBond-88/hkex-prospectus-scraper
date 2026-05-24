@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from hk_ipo.l1.models import NormalizedEntry
+from hk_ipo.l1.manifest_reader import read_manifest
 from hk_ipo.l1.summary_writer import write_summary
 
 
@@ -21,7 +22,14 @@ def _make_entry(
     company_name: str | None = "TestCo Ltd",
     doc_url: str | None = "https://example.com/sehk/2024/0301/doc_e.pdf",
     file_path: str | None = "01810.pdf",
+    error_msg: str | None = None,
 ) -> NormalizedEntry:
+    """Build a NormalizedEntry with sensible defaults convenient for tests.
+
+    ``file_path`` is silently dropped (set to None) when status is not
+    ``"success"``, because NormalizedEntry stores ``file_path`` as None for
+    non-success entries.
+    """
     fp = file_path if status == "success" else None
     return NormalizedEntry(
         hk_ticker=ticker,
@@ -31,6 +39,7 @@ def _make_entry(
         company_name_en=company_name,
         doc_url=doc_url,
         file_path=fp,
+        error_msg=error_msg,
     )
 
 
@@ -130,17 +139,16 @@ class TestCompanyNameNA:
 
 class TestFullSnapshot:
     def test_full_output_snapshot(self, tmp_path: Path) -> None:
-        from hk_ipo.l1.manifest_reader import read_manifest
-
+        """Integration test: read a manifest fixture and verify full summary output."""
         fixture = Path(__file__).resolve().parent / "fixtures" / "sample_manifest.json"
         entries = read_manifest(fixture)
         out = tmp_path / "summary.md"
-        write_summary(entries, out, manifest_path=str(fixture))
+        write_summary(entries, out, manifest_path=fixture)
         text = _read(out)
 
         # ---- Header / totals ------------------------------------------------
         assert "# HKEX IPO Prospectus Download Summary" in text
-        assert ": 2018-06 to 2024-07" in text or "2018-06" in text
+        assert "Period covered: 2018-06 to 2024-06" in text
         assert "Successfully downloaded | 2" in text
         assert "Skipped (wrong doc type) | 2" in text
         assert "Skipped (no English) | 1" in text
@@ -153,8 +161,7 @@ class TestFullSnapshot:
         assert pos_2024 < pos_2018
 
         # ---- 2024-01: skipped entries ---------------------------------------
-        assert "### 2024-01" in text
-        assert "Skipped (1)" in text or "Skipped tickers" in text  # month skip header
+        assert "### 2024-01 — Skipped (1)" in text
         assert "00001" in text
 
         # ---- 2024-03: one success, one skipped_no_english ------------------
@@ -165,12 +172,12 @@ class TestFullSnapshot:
         # ---- 2024-06: failed entry -----------------------------------------
         assert "### 2024-06" in text
         assert "09999" in text
-        assert "Failed" in text
+        assert "| Ticker | Error |" in text
+        assert "HTTPError: 503 after 5 retries" in text
 
-        # ---- 2024-07: skipped entry with null doc_url ----------------------
-        # Entry 08888 has doc_url=None → year=0, month=0
-        # It should be grouped under year 0 or omitted from period calculation
-        # The entry should still appear somewhere
+        # ---- Unknown date: skipped entry with null doc_url -----------------
+        # Entry 08888 has doc_url=None → year=0, month=0 → ## Unknown date
+        assert "## Unknown date" in text
         assert "08888" in text
 
         # ---- 2018: success ------------------------------------------------

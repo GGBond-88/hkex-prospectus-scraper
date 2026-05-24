@@ -11,7 +11,7 @@ _SKIP_STATUSES = frozenset({"skipped_wrong_doc_type", "skipped_no_english"})
 
 
 def write_summary(
-    entries: list[NormalizedEntry], output_path: Path, manifest_path: str
+    entries: list[NormalizedEntry], output_path: Path, manifest_path: Path
 ) -> None:
     """Write a Markdown summary of manifest entries to *output_path*.
 
@@ -33,10 +33,12 @@ def write_summary(
     else:
         period = "N/A"
 
-    # ---- group by (year, month) --------------------------------------------
-    groups: dict[tuple[int, int], list[NormalizedEntry]] = defaultdict(list)
+    # ---- group by (year, month) in a single pass ---------------------------
+    year_to_months: dict[int, dict[int, list[NormalizedEntry]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for e in entries:
-        groups[(e.year, e.month)].append(e)
+        year_to_months[e.year][e.month].append(e)
 
     # ---- build markdown ----------------------------------------------------
     lines: list[str] = []
@@ -63,12 +65,6 @@ def write_summary(
     lines.append("")
 
     # Per-year sections (newest first)
-    year_to_months: dict[int, dict[int, list[NormalizedEntry]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
-    for (y, m), month_entries in groups.items():
-        year_to_months[y][m] = month_entries
-
     for year in sorted(year_to_months, reverse=True):
         months = year_to_months[year]
         year_entries = [e for m_entries in months.values() for e in m_entries]
@@ -76,14 +72,17 @@ def write_summary(
         y_skipped = sum(1 for e in year_entries if e.status in _SKIP_STATUSES)
         y_failed = sum(1 for e in year_entries if e.status == "failed")
 
-        lines.append(f"## {year}")
+        if year == 0:
+            lines.append("## Unknown date")
+        else:
+            lines.append(f"## {year}")
         lines.append("")
         lines.append(
             f"**Downloaded: {y_success} / Skipped: {y_skipped} / Failed: {y_failed}**"
         )
         lines.append("")
 
-        if y_success == 0 and year_entries:
+        if y_success == 0:
             lines.append(
                 "> ⚠ No successful downloads this year. See gaps.md for diagnostic."
             )
@@ -99,7 +98,9 @@ def write_summary(
             # Single H3 heading per month.
             # Use "— Skipped (N)" suffix only when the month has no
             # successes or failures — otherwise use a plain heading.
-            if successes or failed:
+            if year == 0:
+                lines.append(f"### Year unknown — month {month:02d}")
+            elif successes or failed:
                 lines.append(f"### {year}-{month:02d}")
             elif skipped:
                 lines.append(f"### {year}-{month:02d} — Skipped ({len(skipped)})")
@@ -118,15 +119,15 @@ def write_summary(
             # Skipped (all skip statuses grouped — comma-separated ticker list)
             if skipped:
                 tickers_str = ", ".join(e.hk_ticker for e in skipped)
-                lines.append(f"Skipped tickers: {tickers_str}")
+                lines.append(f"Skipped Tickers: {tickers_str}")
                 lines.append("")
 
-            # Failed — error table using doc_url as context
+            # Failed — error table
             if failed:
                 lines.append("| Ticker | Error |")
                 lines.append("|---|---|")
                 for e in failed:
-                    error = e.doc_url or "N/A"
+                    error = e.error_msg or "Download failed (see manifest for details)"
                     lines.append(f"| {e.hk_ticker} | {error} |")
                 lines.append("")
 
