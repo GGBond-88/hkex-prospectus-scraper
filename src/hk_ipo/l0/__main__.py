@@ -6,6 +6,7 @@ import asyncio
 import sys
 import time
 from datetime import date, datetime
+from pathlib import Path
 
 from hk_ipo.config import Config
 from hk_ipo.logging_setup import configure_run_logger
@@ -69,7 +70,6 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     cfg = Config.from_env()
     if args.manifest:
-        from pathlib import Path
         cfg = Config(
             data_dir=cfg.data_dir,
             raw_pdfs_dir=cfg.raw_pdfs_dir,
