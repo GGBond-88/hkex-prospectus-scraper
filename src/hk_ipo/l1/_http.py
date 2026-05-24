@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import httpx
@@ -20,6 +21,12 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
+
+__all__ = [
+    "CACHE_TTL_DAYS",
+    "ValidationHTTPClient",
+    "should_use_cache",
+]
 
 # ---------------------------------------------------------------------------
 # Cache helpers
@@ -55,8 +62,6 @@ def _parse_retry_after_disc(response: httpx.Response) -> float | None:
         pass
     # HTTP-date.
     try:
-        from email.utils import parsedate_to_datetime
-
         target = parsedate_to_datetime(retry_after)
         if target.tzinfo is None:
             target = target.replace(tzinfo=timezone.utc)
@@ -87,6 +92,9 @@ class ValidationHTTPClient:
         self._inter_request_sleep = inter_request_sleep
         self._client = client
         self._owns_client = client is None
+        # Pacing is global (not per-host). The spec allows per-host pacing via
+        # host_key, but all L1 sources target different hosts, so per-host pacing
+        # adds complexity with no benefit for this use case.
         self._last_request_time: float = 0.0
 
     # -- context manager -------------------------------------------------------
@@ -98,6 +106,8 @@ class ValidationHTTPClient:
                 timeout=httpx.Timeout(30.0, connect=30.0, read=30.0),
                 follow_redirects=True,
             )
+        else:
+            self._client.headers["User-Agent"] = self._user_agent
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -160,8 +170,12 @@ class ValidationHTTPClient:
                 with attempt:
                     if method == "GET":
                         r = await self._client.get(url, params=params)
-                    else:
+                    elif method == "POST":
                         r = await self._client.post(url, data=data)
+                    else:
+                        raise ValueError(
+                            f"Unsupported HTTP method: {method}"
+                        )
 
                     if r.status_code == 429:
                         rate_limit_attempts += 1
