@@ -1,8 +1,6 @@
 """Unit tests for hk_ipo.l1.pipeline — orchestration functions."""
 from __future__ import annotations
 
-import json
-import sys
 from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -453,8 +451,8 @@ class TestRunReportAll:
         assert summary_path.exists()
         assert gaps_path.exists()
 
-    def test_report_fails_validate_succeeds_returns_1(self, tmp_path: Path) -> None:
-        """run_report_all returns max(report_code, validate_code)."""
+    def test_both_fail_on_missing_manifest_returns_1(self, tmp_path: Path) -> None:
+        """Both run_report and run_validate return 1 when manifest is missing."""
         from hk_ipo.l1.pipeline import run_report_all
 
         # Missing manifest → report returns 1

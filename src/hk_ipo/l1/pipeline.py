@@ -178,20 +178,25 @@ async def run_report_all(
     summary_path: Path,
     gaps_path: Path,
     missing_tickers_path: Path,
-    **kwargs,
+    *,
+    since: date | None = None,
+    until: date | None = None,
+    sources: list[str] | None = None,
+    refresh_sources: bool = False,
+    contact_email: str = "",
 ) -> int:
     """Run report + validate in sequence. Returns max of both exit codes."""
     report_code = await run_report(
         manifest_path, summary_path,
-        since=kwargs.pop("since", None),
-        until=kwargs.pop("until", None),
+        since=since,
+        until=until,
     )
 
     validate_code = await run_validate(
         manifest_path, gaps_path, missing_tickers_path,
-        sources=kwargs.pop("sources", None),
-        refresh_sources=kwargs.pop("refresh_sources", False),
-        contact_email=kwargs.pop("contact_email", ""),
+        sources=sources,
+        refresh_sources=refresh_sources,
+        contact_email=contact_email,
     )
 
     return max(report_code, validate_code)
@@ -211,8 +216,8 @@ def _filter_by_date(
     """Filter entries to those whose year/month falls within [since, until].
 
     An entry is included when its first day of the month is in the range
-    (inclusive on both ends). Entries with year=0 are included only when
-    both since and until are None (no filtering applied).
+    (inclusive on both ends). Entries with year=0 are always excluded from
+    filtered output.
     """
     filtered: list[NormalizedEntry] = []
     for e in entries:
@@ -232,6 +237,10 @@ def _log_source_error(source_name: str, reason: str) -> None:
 
     This is separate from the per-module _log_source_error functions;
     it catches top-level exceptions from the fetch_* calls.
+
+    NOTE: Not concurrency-safe. Uses a read-modify-write pattern without
+    file locking. Concurrent invocations may lose data. Acceptable for
+    single-process usage.
     """
     err_dir = Path("data/validation")
     err_path = err_dir / "source_errors.json"
