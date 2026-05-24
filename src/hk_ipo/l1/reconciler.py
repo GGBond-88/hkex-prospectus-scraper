@@ -19,8 +19,12 @@ def reconcile(
     only when at least two independent external sources list it as an IPO.
     """
     manifest_success: set[str] = {e.hk_ticker for e in manifest if e.status == "success"}
+    # ManifestStore enforces unique tickers; the dict comprehension below
+    # therefore cannot silently overwrite duplicate entries.
     manifest_skipped: dict[str, str] = {
-        e.hk_ticker: e.status for e in manifest if e.status.startswith("skipped")
+        e.hk_ticker: e.status
+        for e in manifest
+        if e.status in ("skipped_no_english", "skipped_wrong_doc_type")
     }
     manifest_all: set[str] = manifest_success | set(manifest_skipped)
 
@@ -127,13 +131,13 @@ def _compute_per_year_counts(
             1 for e in manifest if e.year == year and e.status == "success"
         )
 
-        # Per-source counts
+        # Per-source counts (deduplicated by ticker within each year)
         for source_name, ipos in sources.items():
-            counts[source_name] = sum(
-                1
+            counts[source_name] = len({
+                ipo.hk_ticker
                 for ipo in ipos
                 if ipo.list_date is not None and ipo.list_date.year == year
-            )
+            })
 
         result[year] = counts
 

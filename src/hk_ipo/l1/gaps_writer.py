@@ -52,6 +52,12 @@ def write_gaps(report: GapReport, output_path: Path) -> None:
     lines.append("")
     _write_wrongly_skipped_table(report, lines)
 
+    # ---- Action summary -----------------------------------------------------
+    total_action = len(report.missing_from_manifest) + len(report.wrongly_skipped)
+    if total_action > 0:
+        lines.append(f"Total confirmed missing or wrongly skipped: {total_action} tickers requiring action — written to missing_tickers.txt")
+        lines.append("")
+
     # ---- Single-source candidates -----------------------------------------
     lines.append("## Single-source candidates (triage manually)")
     lines.append("")
@@ -191,9 +197,6 @@ def _write_missing_table(report: GapReport, lines: list[str]) -> None:
         confirmers = _confirming_sources(ticker, report)
         lines.append(f"| {ticker} | {confirmers} |")
 
-    total = len(report.missing_from_manifest) + len(report.wrongly_skipped)
-    lines.append("")
-    lines.append(f"({total} tickers requiring action — written to missing_tickers.txt)")
     lines.append("")
 
 
