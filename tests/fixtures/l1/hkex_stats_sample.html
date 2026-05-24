@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>HKEX Monthly Market Highlights</title></head>
+<body>
+  <!-- Minimal representation of what a parseable HKEX page WOULD look like
+       if it contained a table listing individual newly-listed companies.
+       Used for testing the parsing logic, though the real HKEX page is
+       JS-heavy and does not provide this data in server-rendered HTML. -->
+
+  <h2>Newly Listed Companies</h2>
+  <table id="new-listings-table">
+    <thead>
+      <tr>
+        <th>Stock Code</th>
+        <th>Company Name</th>
+        <th>Listing Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>01810</td>
+        <td>Xiaomi Corporation</td>
+        <td>2018-07-09</td>
+      </tr>
+      <tr>
+        <td>09660</td>
+        <td>Horizon Robotics</td>
+        <td>2024-10-24</td>
+      </tr>
+      <tr>
+        <td>02598</td>
+        <td>Lianlian DigiTech Co., Ltd.</td>
+        <td>2024-06-28</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Row with missing ticker should be skipped -->
+  <table id="partial-data-table">
+    <thead>
+      <tr>
+        <th>Stock Code</th>
+        <th>Company Name</th>
+        <th>Listing Date</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td></td>
+        <td>No Ticker Co</td>
+        <td>2024-01-01</td>
+      </tr>
+      <tr>
+        <td>00005</td>
+        <td></td>
+        <td>2024-02-01</td>
+      </tr>
+      <tr>
+        <td>00011</td>
+        <td>Valid Co</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Non-IPO table (should be ignored) -->
+  <table id="market-stats">
+    <thead>
+      <tr>
+        <th>Month</th>
+        <th>Turnover (HKD)</th>
+        <th>Market Cap (HKD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>January</td>
+        <td>1,234,567</td>
+        <td>30,000,000</td>
+      </tr>
+    </tbody>
+  </table>
+
+</body>
+</html>
